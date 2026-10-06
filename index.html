@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Generatore Tessere</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <div class="brand-mark">
+      <!-- Logo della tessera (tracciati presi dal modello) -->
+      <svg viewBox="90 37 63.6 45" aria-hidden="true">
+        <path fill="currentColor" fill-rule="evenodd" d="M 121.77 77.66 L 95.89 59.32 L 121.77 41.00 L 147.67 59.33 Z M 121.77 37.48 L 90.89 59.33 L 121.78 81.17 L 152.66 59.33 Z"/>
+        <path fill="currentColor" fill-rule="evenodd" d="M 123.62 66.19 L 119.92 66.19 L 118.71 64.20 L 118.83 62.78 L 117.32 59.62 L 117.27 56.74 L 115.02 55.32 L 114.28 54.14 L 114.17 51.37 L 114.87 51.98 L 115.56 53.49 L 116.33 53.80 L 117.76 53.80 L 118.78 52.75 L 120.53 52.75 L 121.77 52.43 L 123.01 52.75 L 124.75 52.75 L 125.78 53.80 L 127.21 53.80 L 127.98 53.49 L 128.67 51.98 L 129.37 51.37 L 129.25 54.14 L 128.52 55.32 L 126.26 56.74 L 126.22 59.62 L 124.71 62.78 L 124.83 64.20 Z M 145.35 59.31 L 124.15 44.27 L 124.15 46.07 L 124.13 46.07 C 124.01 47.26 123.00 48.20 121.77 48.20 C 120.54 48.20 119.53 47.26 119.41 46.07 L 119.40 46.07 L 119.40 44.29 L 98.23 59.31 L 119.42 74.33 L 119.42 72.58 L 119.43 72.58 C 119.55 71.38 120.56 70.44 121.79 70.44 C 123.02 70.44 124.03 71.38 124.15 72.58 L 124.16 72.58 L 124.16 74.32 Z"/>
+      </svg>
+    </div>
+    <div>
+      <div class="brand-title">Generatore tessere</div>
+      <div class="brand-subtitle">Un PDF per ogni nome, a partire dal tuo modello</div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="slab left-top"></div>
+  <div class="slab left-bottom"></div>
+  <div class="slab right"></div>
+
+  <div class="wrap workspace">
+    <div class="inputs">
+      <section class="panel">
+        <h2><span class="step">1</span>Modello</h2>
+
+        <label class="dropzone" id="dropzone" for="template-file">
+          <span class="dropzone-title">Trascina qui il modello</span>
+          <span class="dropzone-hint">oppure <u>scegli un file</u> · PDF o Illustrator (.ai)</span>
+        </label>
+        <input type="file" id="template-file" accept=".ai,.pdf,application/pdf">
+
+        <div class="template-info" id="template-info" hidden>
+          <div>
+            <div class="template-name" id="template-name"></div>
+            <div class="status ok" id="template-details"></div>
+          </div>
+          <label class="pill ghost small" for="template-file">Cambia</label>
+        </div>
+
+        <p class="hint">Il nome nel modello deve essere testo, non convertito in tracciati.</p>
+        <div class="status" id="files-status"></div>
+      </section>
+
+      <section class="panel">
+        <h2><span class="step">2</span>Nomi</h2>
+        <p class="hint">Uno per riga. Clicca su un nome per vederlo nell'anteprima.</p>
+        <textarea id="names" spellcheck="false" placeholder="Mario Rossi&#10;Giulia Bianchi&#10;Luca Verdi"></textarea>
+        <div class="row">
+          <label class="pill ghost small" for="names-file">Importa .txt / .csv</label>
+          <input type="file" id="names-file" accept=".txt,.csv">
+          <button class="pill ghost small" id="clear-names">Svuota</button>
+          <span class="name-count" id="name-count"></span>
+        </div>
+        <div class="issues" id="issues" hidden>
+          <strong>Da controllare</strong>
+          <ul id="issues-list"></ul>
+        </div>
+      </section>
+    </div>
+
+    <div class="output">
+      <div class="preview-frame">
+        <!-- Qui pdf.js disegna il PDF vero della tessera -->
+        <canvas class="card-preview" id="card-preview" role="img" aria-label="Anteprima della tessera"></canvas>
+        <div class="preview-empty" id="preview-empty">L'anteprima apparirà qui</div>
+      </div>
+      <div class="preview-caption">
+        <span id="preview-label"></span>
+        <div class="preview-arrows">
+          <button class="round-button" id="previous-name" title="Nome precedente">‹</button>
+          <button class="round-button" id="next-name" title="Nome successivo">›</button>
+        </div>
+      </div>
+
+      <section class="panel">
+        <h2><span class="step">3</span>Scarica</h2>
+        <div class="downloads">
+          <button class="pill" id="download-zip" disabled>ZIP · un PDF per nome</button>
+          <button class="pill ghost" id="download-merged" disabled>PDF unico, una tessera per pagina</button>
+          <button class="pill ghost small" id="download-current" disabled>Solo la tessera in anteprima</button>
+        </div>
+        <p class="hint" id="download-hint"></p>
+
+        <div class="progress" id="progress" hidden><span id="progress-fill"></span></div>
+        <div class="status" id="generate-status"></div>
+
+        <label class="switch">
+          <input type="checkbox" id="remove-hidden-data" checked>
+          <span>
+            Rimuovi metadati e dati di Illustrator
+            <small>Contengono ancora il testo originale del modello. La stampa non cambia e i file sono più leggeri.</small>
+          </span>
+        </label>
+      </section>
+    </div>
+  </div>
+</main>
+
+<!-- Librerie da CDN; "integrity" garantisce che il file sia esattamente quello previsto -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"
+        integrity="sha384-weMABwrltA6jWR8DDe9Jp5blk+tZQh7ugpCsF3JwSA53WZM9/14PjS5LAJNHNjAI" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"
+        integrity="sha384-2p6U+1mmqF10USehFeRiyG2ESG9FwIqN+jxULn5w9jjQIihSn9Pt13dVCn/Hawjn" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+        integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
+        integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
+<script src="js/pdf-text.js"></script>
+<script src="js/tessera.js"></script>
+<script src="js/preview.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
