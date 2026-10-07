@@ -46,6 +46,8 @@ code {
 
 input[type=file] { display: none; }
 
+[hidden] { display: none !important; }
+
 .wrap {
   max-width: 1100px;
   margin: 0 auto;
@@ -206,6 +208,37 @@ input[type=file] { display: none; }
 
 .preview-empty[hidden] { display: none; }
 
+/* Riquadri cliccabili sopra i testi del modello, per scegliere quello da sostituire */
+.field-overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.field-overlay[hidden] { display: none; }
+
+.field-box {
+  position: absolute;
+  box-sizing: content-box;
+  margin: -5px;
+  padding: 3px;
+  border: 2px dashed rgba(73, 134, 187, .95);
+  border-radius: 4px;
+  background: rgba(73, 134, 187, .18);
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+
+.field-box:hover,
+.field-box:focus-visible {
+  border-style: solid;
+  background: rgba(73, 134, 187, .35);
+  outline: none;
+}
+
+.field-box.selected { border: 2px solid #fff; }
+
+.preview-caption.selecting { color: #fff; }
+
 .preview-caption {
   display: flex;
   align-items: center;
@@ -342,6 +375,73 @@ main {
 }
 
 .template-info[hidden] { display: none; }
+
+.field-picker {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .22);
+}
+
+.field-picker[hidden] { display: none; }
+
+.field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-info { min-width: 0; }
+
+.field-label {
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+.field-text {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Scelta dell'allineamento: tre pulsanti uniti */
+.segmented {
+  display: inline-flex;
+  overflow: hidden;
+  border: 2px solid #fff;
+  border-radius: 999px;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented span {
+  display: block;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.segmented input:checked + span {
+  background: #fff;
+  color: var(--navy);
+}
+
+.segmented input:focus-visible + span { outline: 2px solid var(--blue); }
+
+.segmented:has(input:disabled) { opacity: .4; }
+.segmented input:disabled + span { cursor: not-allowed; }
 
 .template-name {
   font-weight: 600;

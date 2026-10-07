@@ -7,7 +7,7 @@ Parte da un modello PDF o Illustrator (.ai) e crea un PDF per ogni nome, sostitu
 ## Uso
 
 1. Apri `index.html` nel browser.
-2. Scegli il modello. Il testo che contiene viene sostituito dal nome, con la stessa dimensione e posizione.
+2. Scegli il modello e clicca nell'anteprima sul testo da sostituire (se è uno solo, viene scelto da sé). Il nome prende dimensione e posizione di quel testo, allineato a sinistra, al centro o a destra.
 3. Inserisci i nomi, uno per riga, oppure importa un file .txt o .csv.
 4. Scarica uno ZIP con un PDF per nome, oppure un unico PDF con tutte le tessere.
 

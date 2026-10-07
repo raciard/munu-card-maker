@@ -51,7 +51,25 @@
           <label class="pill ghost small" for="template-file">Cambia</label>
         </div>
 
-        <p class="hint">Il nome nel modello deve essere testo, non convertito in tracciati.</p>
+        <div class="field-picker" id="field-picker" hidden>
+          <div class="field-row">
+            <div class="field-info">
+              <div class="field-label">Testo da sostituire</div>
+              <div class="field-text" id="field-text"></div>
+            </div>
+            <button class="pill ghost small" id="pick-field">Cambia</button>
+          </div>
+          <div class="field-row">
+            <span class="field-label">Allineamento</span>
+            <div class="segmented" role="radiogroup" aria-label="Allineamento del nuovo testo">
+              <label><input type="radio" name="align" value="left"><span>Sinistra</span></label>
+              <label><input type="radio" name="align" value="center"><span>Centro</span></label>
+              <label><input type="radio" name="align" value="right"><span>Destra</span></label>
+            </div>
+          </div>
+        </div>
+
+        <p class="hint">Il testo da sostituire deve essere testo vero, non convertito in tracciati.</p>
         <div class="status" id="files-status"></div>
       </section>
 
@@ -77,6 +95,7 @@
         <!-- Qui pdf.js disegna il PDF vero della tessera -->
         <canvas class="card-preview" id="card-preview" role="img" aria-label="Anteprima della tessera"></canvas>
         <div class="preview-empty" id="preview-empty">L'anteprima apparirà qui</div>
+        <div class="field-overlay" id="field-overlay" hidden></div>
       </div>
       <div class="preview-caption">
         <span id="preview-label"></span>

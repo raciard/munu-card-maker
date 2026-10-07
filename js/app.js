@@ -24,6 +24,10 @@
     templateInfo: byId('template-info'),
     templateName: byId('template-name'),
     templateDetails: byId('template-details'),
+    fieldPicker: byId('field-picker'),
+    fieldText: byId('field-text'),
+    pickField: byId('pick-field'),
+    alignInputs: document.querySelectorAll('input[name="align"]'),
     filesStatus: byId('files-status'),
 
     removeHiddenData: byId('remove-hidden-data'),
@@ -37,6 +41,8 @@
 
     previewEmpty: byId('preview-empty'),
     previewLabel: byId('preview-label'),
+    previewCaption: document.querySelector('.preview-caption'),
+    fieldOverlay: byId('field-overlay'),
     previousName: byId('previous-name'),
     nextName: byId('next-name'),
   };
@@ -46,6 +52,9 @@
     fontBytes: null,
     fontFailed: false,
     templateVersion: 0, // cresce a ogni modello scelto: l'anteprima va rifatta
+    fieldIndex: null,   // quale testo del modello sostituire (indice in template.fields)
+    align: 'center',    // 'left' | 'center' | 'right'
+    choosingField: false, // true mentre si sceglie il testo cliccando sull'anteprima
     previewIndex: 0,    // quale nome mostra l'anteprima
     busy: false,        // true mentre si generano i PDF
   };
@@ -56,14 +65,27 @@
 
   async function useTemplate(file) {
     try {
-      state.template = await Tessera.readTemplate(new Uint8Array(await file.arrayBuffer()));
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const template = await Tessera.readTemplate(bytes);
+      completeFieldsWithPdfJs(template, await readPdfTexts(bytes));
+      if (template.fields.length === 0) throw new Error('nessun testo modificabile trovato');
+
+      state.template = template;
       state.templateVersion++;
       showStatus(ui.filesStatus, '', '');
 
-      const { pageWidth, pageHeight, fontSize } = state.template;
+      const { box, fields } = template;
       ui.templateName.textContent = file.name;
-      ui.templateDetails.textContent =
-        `${toMillimeters(pageWidth)} × ${toMillimeters(pageHeight)} mm · testo da sostituire trovato (${fontSize} pt)`;
+      ui.templateDetails.textContent = `${toMillimeters(box.width)} × ${toMillimeters(box.height)} mm · `
+        + (fields.length === 1 ? '1 testo modificabile' : `${fields.length} testi modificabili`);
+
+      // Con un solo testo non c'è niente da scegliere.
+      if (fields.length === 1) {
+        chooseField(0);
+      } else {
+        state.fieldIndex = null;
+        state.choosingField = true;
+      }
     } catch (error) {
       state.template = null;
       showStatus(ui.filesStatus, 'err', html`${file.name}: ${error.message}`);
@@ -71,6 +93,55 @@
     ui.dropzone.hidden = Boolean(state.template);
     ui.templateInfo.hidden = !state.template;
     refresh();
+  }
+
+  // pdf.js legge il testo e la sua larghezza con qualsiasi tipo di font, il parser
+  // di tessera.js solo con i font semplici: abbino i testi per posizione e uso
+  // quelli di pdf.js. pdf.js può spezzare una riga in più pezzi, che qui riunisco.
+  function completeFieldsWithPdfJs(template, pdfTexts) {
+    for (const field of template.fields) {
+      const tolerance = Math.max(0.5, field.fontSize * 0.05);
+      const near = (a, b) => Math.abs(a - b) < tolerance;
+      const otherStarts = template.fields
+        .filter((other) => other !== field && near(other.baselineY, field.baselineY))
+        .map((other) => other.x);
+      const sameLine = pdfTexts
+        .filter((item) => near(item.y, field.baselineY))
+        .sort((a, b) => a.x - b.x);
+
+      const pieces = [];
+      let end = null;
+      for (const item of sameLine) {
+        const startsHere = end === null && near(item.x, field.x);
+        const continuesLine = end !== null
+          && item.x > end - tolerance
+          && item.x < end + field.fontSize
+          && !otherStarts.some((x) => near(x, item.x));
+        if (startsHere || continuesLine) {
+          pieces.push(item.text);
+          end = item.x + item.width;
+        } else if (end !== null) {
+          break;
+        }
+      }
+      if (pieces.length > 0) {
+        field.text = pieces.join('');
+        field.width = end - field.x;
+      }
+    }
+    template.fields = template.fields.filter((field) => field.text.trim());
+  }
+
+  function chooseField(index) {
+    const field = state.template.fields[index];
+    state.fieldIndex = index;
+    state.align = Tessera.suggestAlignment(state.template, field);
+    state.choosingField = false;
+    refresh();
+  }
+
+  function selectedField() {
+    return state.template && state.fieldIndex !== null ? state.template.fields[state.fieldIndex] : null;
   }
 
   async function loadFont() {
@@ -163,12 +234,27 @@
     ui.downloadHint.textContent = missing
       || `${names.length} ${names.length === 1 ? 'tessera pronta' : 'tessere pronte'}.`;
 
+    renderFieldPicker();
     renderPreview();
+  }
+
+  function renderFieldPicker() {
+    const field = selectedField();
+    ui.fieldPicker.hidden = !state.template;
+    ui.fieldText.textContent = field ? `«${field.text}»` : 'Da scegliere nell\'anteprima';
+    ui.fieldText.title = field ? field.text : '';
+    ui.pickField.textContent = state.choosingField && field ? 'Annulla' : 'Cambia';
+    ui.pickField.hidden = state.choosingField && !field;
+    for (const input of ui.alignInputs) {
+      input.checked = input.value === state.align;
+      input.disabled = !field;
+    }
   }
 
   // Cosa serve ancora prima di poter scaricare (null se c'è tutto).
   function whatIsMissing(names) {
     if (!state.template) return 'Per iniziare scegli un modello (passaggio 1).';
+    if (!selectedField()) return "Clicca nell'anteprima sul testo da sostituire (passaggio 1).";
     if (state.fontFailed) return 'Il font non è disponibile.';
     if (!state.fontBytes) return 'Caricamento del font…';
     if (names.length === 0) return 'Aggiungi almeno un nome (passaggio 2).';
@@ -179,19 +265,61 @@
     const names = readNames();
     state.previewIndex = clamp(state.previewIndex, 0, names.length - 1);
     const name = names[state.previewIndex] || PREVIEW_EXAMPLE;
+    const { template, fontBytes, templateVersion, fieldIndex, align, choosingField } = state;
+    const field = selectedField();
 
-    ui.previewLabel.innerHTML = names.length === 0
-      ? html`Esempio · <span class="current-name">${name}</span>`
-      : html`<strong>${state.previewIndex + 1}</strong> / ${names.length} · <span class="current-name">${name}</span>`;
-    ui.previousName.disabled = state.previewIndex <= 0;
-    ui.nextName.disabled = state.previewIndex >= names.length - 1;
+    ui.previewCaption.classList.toggle('selecting', choosingField);
+    if (choosingField) {
+      ui.previewLabel.textContent = 'Clicca sul testo da sostituire';
+    } else if (names.length === 0) {
+      ui.previewLabel.innerHTML = html`Esempio · <span class="current-name">${name}</span>`;
+    } else {
+      ui.previewLabel.innerHTML = html`<strong>${state.previewIndex + 1}</strong> / ${names.length} · <span class="current-name">${name}</span>`;
+    }
+    ui.previousName.disabled = choosingField || state.previewIndex <= 0;
+    ui.nextName.disabled = choosingField || state.previewIndex >= names.length - 1;
+
+    renderFieldOverlay();
+    ui.previewEmpty.hidden = Boolean(template);
+    if (!template) return;
 
     // L'anteprima è il PDF vero, lo stesso che verrebbe scaricato.
-    const { template, fontBytes, templateVersion } = state;
-    ui.previewEmpty.hidden = Boolean(template && fontBytes);
-    if (template && fontBytes) {
-      showPdf(`${templateVersion}:${name}`, () => Tessera.createCard({ template, fontBytes, name }));
+    // Mentre si sceglie il testo (o manca il font) si vede il modello originale.
+    if (choosingField || !field || !fontBytes) {
+      showPdf(`${templateVersion}:originale`, () => template.bytes);
+    } else {
+      showPdf(`${templateVersion}:${fieldIndex}:${align}:${name}`,
+        () => Tessera.createCard({ template, field, align, fontBytes, name }));
     }
+  }
+
+  // Un riquadro cliccabile sopra ogni testo del modello, posizionato in percentuale
+  // così segue l'anteprima a qualsiasi dimensione.
+  function renderFieldOverlay() {
+    const { template, choosingField, fieldIndex } = state;
+    ui.fieldOverlay.hidden = !(template && choosingField);
+    if (ui.fieldOverlay.hidden) return;
+
+    const { box } = template;
+    const percent = (value, total) => `${(100 * value) / total}%`;
+    ui.fieldOverlay.replaceChildren(...template.fields.map((field, index) => {
+      const top = field.baselineY + field.fontSize * 0.9;    // circa la cima delle maiuscole e degli accenti
+      const bottom = field.baselineY - field.fontSize * 0.25; // circa il fondo di g, p, q
+      const width = field.width ?? field.fontSize * 0.6 * field.text.length;
+
+      const button = document.createElement('button');
+      button.className = index === fieldIndex ? 'field-box selected' : 'field-box';
+      button.title = field.text;
+      button.setAttribute('aria-label', `Sostituisci «${field.text}»`);
+      Object.assign(button.style, {
+        left: percent(field.x - box.x, box.width),
+        width: percent(width, box.width),
+        top: percent(box.y + box.height - top, box.height),
+        height: percent(top - bottom, box.height),
+      });
+      button.addEventListener('click', () => chooseField(index));
+      return button;
+    }));
   }
 
   function showStatus(element, tone, message) {
@@ -209,6 +337,8 @@
   function createCard(name) {
     return Tessera.createCard({
       template: state.template,
+      field: selectedField(),
+      align: state.align,
       fontBytes: state.fontBytes,
       name,
       removeHiddenData: ui.removeHiddenData.checked,
@@ -309,6 +439,23 @@
     refresh();
     ui.names.focus();
   });
+
+  ui.pickField.addEventListener('click', () => {
+    state.choosingField = !state.choosingField;
+    refresh();
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.choosingField && selectedField()) {
+      state.choosingField = false;
+      refresh();
+    }
+  });
+  for (const input of ui.alignInputs) {
+    input.addEventListener('change', () => {
+      state.align = input.value;
+      refresh();
+    });
+  }
 
   ui.previousName.addEventListener('click', () => {
     state.previewIndex--;

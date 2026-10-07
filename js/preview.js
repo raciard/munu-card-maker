@@ -93,5 +93,24 @@
     return show;
   }
 
+  /**
+   * Testi della prima pagina come li legge pdf.js: contenuto leggibile per ogni
+   * tipo di font e misure precise, in punti sulla pagina (origine in basso a sinistra).
+   * @returns [{ text, x, y, width }]  (y è la linea di base)
+   */
+  async function readPdfTexts(pdfBytes) {
+    const pdf = await pdfjs.getDocument({ data: pdfBytes.slice(), worker: worker() }).promise;
+    try {
+      const page = await pdf.getPage(1);
+      const { items } = await page.getTextContent();
+      return items
+        .filter((item) => item.str !== undefined)
+        .map((item) => ({ text: item.str, x: item.transform[4], y: item.transform[5], width: item.width }));
+    } finally {
+      pdf.destroy();
+    }
+  }
+
   global.createPdfPreview = createPdfPreview;
+  global.readPdfTexts = readPdfTexts;
 })(globalThis);

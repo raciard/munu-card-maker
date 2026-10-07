@@ -24,72 +24,122 @@
   // ── Modello ──────────────────────────────────────────────────────────────
 
   /**
-   * Legge il modello e trova il nome da sostituire: è il testo della tessera
-   * (se i blocchi di testo sono più di uno, il primo).
+   * Legge il modello e trova i testi che si possono sostituire.
    * Va fatto una sola volta; il risultato serve a tutte le tessere.
+   *
+   * Tutte le misure sono in punti, nello spazio della pagina (origine in basso a sinistra).
+   * @returns {{ bytes, box: {x, y, width, height}, fields: Field[] }}
+   *
+   * Field: { run, text, fontSize, x, baselineY, width, stretch }
+   *   width può essere null se non si riesce a calcolare dal font (es. font CID):
+   *   in quel caso va misurata altrove (l'interfaccia la prende da pdf.js).
    */
   async function readTemplate(bytes) {
     const doc = await PDFDocument.load(bytes, { updateMetadata: false });
     const page = doc.getPage(0);
 
-    const blocks = PdfText.findTextBlocks(readPageContent(page));
-    if (blocks.length === 0) {
-      throw new Error('Nessun testo trovato nel modello (il nome è forse convertito in tracciati?)');
-    }
-    const [nameBlock] = blocks;
+    const fields = PdfText.findTextRuns(readPageContent(page))
+      .filter((run) => run.fontKey)
+      .map((run) => describeField(page, run))
+      .filter(Boolean);
 
-    const [scale, , , , x, baselineY] = nameBlock.matrix;
-    const fontSize = nameBlock.fontSize * scale;
-    const width = measureOriginalText(page, nameBlock) * fontSize;
+    if (fields.length === 0) {
+      throw new Error('Nessun testo modificabile nel modello (è forse convertito in tracciati?)');
+    }
+    return { bytes, box: page.getCropBox(), fields };
+  }
+
+  // Posizione e dimensioni del testo sulla pagina. null se il testo è ruotato,
+  // inclinato o capovolto: sono gli unici casi che non si sanno riposizionare.
+  function describeField(page, run) {
+    // Effetto combinato di matrice del testo e trasformazione della pagina
+    // (alcuni programmi ribaltano la pagina e poi ribaltano di nuovo il testo).
+    const [a, b, c, d, x, y] = PdfText.multiply(run.matrix, run.ctm);
+    if (Math.abs(b) > 1e-9 || Math.abs(c) > 1e-9 || a <= 0 || d <= 0) return null;
+
+    const sizeX = run.fontSize * a; // corpo in orizzontale e in verticale, in punti:
+    const sizeY = run.fontSize * d; // diversi solo se il testo è stato stirato
+    const widthEm = measureOriginalText(page, run);
 
     return {
-      bytes,
-      originalText: nameBlock.text,
-      fontKey: nameBlock.fontKey,
-      fontSize,
-      baselineY,
-      centerX: x + width / 2, // il nuovo nome sarà centrato qui
-      pageWidth: page.getWidth(),
-      pageHeight: page.getHeight(),
+      run,
+      text: run.text,
+      fontSize: sizeY,
+      stretch: sizeX / sizeY,
+      x,
+      baselineY: y,
+      width: widthEm === null ? null : widthEm * sizeX,
     };
   }
 
   // Larghezza (in em) del testo originale, usando le larghezze del suo font.
-  function measureOriginalText(page, block) {
-    const font = fontResources(page).lookup(PDFName.of(block.fontKey));
+  // null se il font non le indica in modo semplice (/Widths).
+  function measureOriginalText(page, run) {
+    const font = fontResources(page).lookup(PDFName.of(run.fontKey));
+    const widthsArray = font && font.lookup(PDFName.of('Widths'));
+    if (!(widthsArray instanceof PDFArray)) return null;
     const firstChar = font.lookup(PDFName.of('FirstChar')).asNumber();
-    const widths = font.lookup(PDFName.of('Widths')).asArray().map((w) => w.asNumber());
+    const widths = widthsArray.asArray().map((w) => w.asNumber());
 
     let total = 0;
-    for (const piece of block.pieces) {
+    for (const piece of run.pieces) {
       if (piece.kerning !== undefined) total -= piece.kerning;
       else for (const code of piece.codes) total += widths[code - firstChar] || 0;
     }
     return total / 1000;
   }
 
+  /**
+   * Allineamento più probabile: centrato se il testo è a metà pagina,
+   * altrimenti verso il bordo a cui è più vicino.
+   */
+  function suggestAlignment(template, field) {
+    if (field.width === null) return 'left';
+    const { x: pageLeft, width: pageWidth } = template.box;
+    const fieldCenter = field.x + field.width / 2;
+    if (Math.abs(fieldCenter - (pageLeft + pageWidth / 2)) < pageWidth * 0.03) return 'center';
+    const toLeftEdge = field.x - pageLeft;
+    const toRightEdge = pageLeft + pageWidth - (field.x + field.width);
+    return toRightEdge < toLeftEdge ? 'right' : 'left';
+  }
+
   // ── Impaginazione del nome ───────────────────────────────────────────────
 
-  /**
-   * Decide corpo e posizione del nome.
-   *
-   * @param template       risultato di readTemplate
-   * @param widthEm        larghezza del nome con corpo 1
-   * @param capHeightEm    altezza delle maiuscole con corpo 1
-   */
-  function fitName(template, widthEm, capHeightEm) {
-    const { fontSize, centerX, pageWidth, baselineY } = template;
+  // Quale punto del vecchio testo resta fermo: inizio, metà o fine.
+  const ANCHOR = { left: 0, center: 0.5, right: 1 };
 
-    // Stesso corpo dell'originale, ridotto solo se il nome non entra.
-    const room = 2 * (Math.min(centerX, pageWidth - centerX) - MARGIN);
-    const size = Math.min(fontSize, room / widthEm);
+  /**
+   * Decide corpo e posizione del nuovo testo, in punti sulla pagina.
+   *
+   * @param template     risultato di readTemplate
+   * @param field        il testo da sostituire (uno di template.fields)
+   * @param align        'left' | 'center' | 'right'
+   * @param widthEm      larghezza del nuovo testo con corpo 1
+   * @param capHeightEm  altezza delle maiuscole con corpo 1
+   */
+  function fitName(template, field, align, widthEm, capHeightEm) {
+    const anchorFactor = ANCHOR[align];
+    const anchor = field.x + (field.width ?? 0) * anchorFactor;
+    const minX = template.box.x + MARGIN;
+    const maxX = template.box.x + template.box.width - MARGIN;
+
+    // Spazio disponibile verso i bordi, a seconda dell'allineamento.
+    const room = {
+      left: maxX - anchor,
+      center: 2 * Math.min(anchor - minX, maxX - anchor),
+      right: anchor - minX,
+    }[align];
+
+    // Stesso corpo dell'originale, ridotto solo se il testo non entra.
+    const lineWidth = widthEm * field.stretch;
+    const size = Math.min(field.fontSize, Math.max(room, 1) / lineWidth);
 
     // Se il corpo cala, abbasso un po' la riga per tenerla centrata in verticale.
-    const shrink = fontSize - size;
+    const shrink = field.fontSize - size;
     return {
       size,
-      x: centerX - (widthEm * size) / 2,
-      y: baselineY + (shrink * capHeightEm) / 2,
+      x: anchor - lineWidth * size * anchorFactor,
+      y: field.baselineY + (shrink * capHeightEm) / 2,
     };
   }
 
@@ -139,30 +189,32 @@
    * Crea il PDF di una tessera.
    *
    * @param template          risultato di readTemplate
+   * @param field             il testo da sostituire (uno di template.fields)
+   * @param align             'left' | 'center' | 'right': quale punto del vecchio testo resta fermo
    * @param fontBytes         font TTF/OTF con cui scrivere il nome
    * @param name              nome da scrivere
    * @param removeHiddenData  toglie i dati di Illustrator, la miniatura e i metadati XMP,
-   *                          che contengono ancora il vecchio nome ma non vengono stampati
+   *                          che contengono ancora il testo originale ma non vengono stampati
    */
-  async function createCard({ template, fontBytes, name, removeHiddenData = true }) {
+  async function createCard({ template, field, align = 'center', fontBytes, name, removeHiddenData = true }) {
     const doc = await PDFDocument.load(template.bytes, { updateMetadata: false });
     doc.registerFontkit(fontkit);
     const page = doc.getPage(0);
     const font = await doc.embedFont(fontBytes, { subset: true });
 
     const line = layOutName(font, name);
-    const { size, x, y } = fitName(template, line.widthEm, line.capHeightEm);
+    const { size, x, y } = fitName(template, field, align, line.widthEm, line.capHeightEm);
 
-    const content = PdfText.replaceTextBlock(readPageContent(page), template.originalText, {
+    // Da punti sulla pagina allo spazio in cui è scritto il testo, togliendo
+    // l'effetto della trasformazione della pagina (spostamenti, scale, ribaltamenti).
+    const onPage = [size * field.stretch, 0, 0, size, x, y];
+    const content = PdfText.replaceTextRun(readPageContent(page), field.run, {
       fontKey: addFont(page, font),
-      matrix: [size, 0, 0, size, x, y],
+      matrix: PdfText.multiply(onPage, PdfText.invert(field.run.ctm)),
       showText: line.showText,
     });
-    if (!content) throw new Error('Il testo del nome non è stato trovato nel modello');
+    if (!content) throw new Error('Il testo da sostituire non è stato trovato nel modello');
     writePageContent(doc, page, content);
-
-    const oldFontStillUsed = new RegExp(`/${template.fontKey}\\b`).test(content);
-    if (!oldFontStillUsed) fontResources(page).delete(PDFName.of(template.fontKey));
 
     if (removeHiddenData) removeIllustratorData(doc, page);
     removeUnreachableObjects(doc);
@@ -270,6 +322,7 @@
 
   const Tessera = {
     readTemplate,
+    suggestAlignment,
     createCard,
     mergeCards,
     missingCharacters,
